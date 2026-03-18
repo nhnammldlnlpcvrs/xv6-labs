@@ -1,0 +1,143 @@
+diff --git a/Makefile b/Makefile
+index 2459777..06e38c6 100644
+--- a/Makefile
++++ b/Makefile
+@@ -196,8 +196,6 @@ UPROGS=\
+ 	$U/_zombie\
+ 	$U/_trace\
+ 	$U/_procinfo\
+-  $U/_xargs\
+-	$U/_tree\
+ 
+ 
+ 
+diff --git a/user/tree.c b/user/tree.c
+deleted file mode 100644
+index 8548667..0000000
+--- a/user/tree.c
++++ /dev/null
+@@ -1,73 +0,0 @@
+-#include "kernel/types.h"
+-#include "kernel/stat.h"
+-#include "user/user.h"
+-#include "kernel/fs.h"
+-
+-void
+-tree(char *path, int depth)
+-{
+-    char buf[512], *p;
+-    int fd;
+-    struct dirent de;
+-    struct stat st;
+-
+-    // Mở thư mục
+-    if((fd = open(path, 0)) < 0){
+-        fprintf(2, "tree: cannot open %s\n", path);
+-        return;
+-    }
+-
+-    // Lấy thông tin file
+-    if(fstat(fd, &st) < 0){
+-        fprintf(2, "tree: cannot stat %s\n", path);
+-        close(fd);
+-        return;
+-    }
+-
+-    // Nếu không phải thư mục thì in ra luôn
+-    if(st.type != T_DIR){
+-        for(int i = 0; i < depth; i++)
+-            printf("  ");
+-        printf("%s\n", path);
+-        close(fd);
+-        return;
+-    }
+-
+-    // In tên thư mục
+-    for(int i = 0; i < depth; i++)
+-        printf("  ");
+-    printf("%s/\n", path);
+-
+-    // Duyệt từng entry trong thư mục
+-    while(read(fd, &de, sizeof(de)) == sizeof(de)){
+-        if(de.inum == 0)
+-            continue;
+-
+-        // Bỏ qua "." và ".."
+-        if(strcmp(de.name, ".") == 0 || strcmp(de.name, "..") == 0)
+-            continue;
+-
+-        // Tạo path mới
+-        strcpy(buf, path);
+-        p = buf + strlen(buf);
+-        *p++ = '/';
+-        memmove(p, de.name, DIRSIZ);
+-        p[DIRSIZ] = 0;
+-
+-        // Gọi đệ quy
+-        tree(buf, depth + 1);
+-    }
+-
+-    close(fd);
+-}
+-
+-int
+-main(int argc, char *argv[])
+-{
+-    if(argc < 2){
+-        tree(".", 0);
+-    } else {
+-        tree(argv[1], 0);
+-    }
+-    exit(0);
+-}
+\ No newline at end of file
+diff --git a/user/xargs.c b/user/xargs.c
+deleted file mode 100644
+index f33dde5..0000000
+--- a/user/xargs.c
++++ /dev/null
+@@ -1,43 +0,0 @@
+-#include "kernel/types.h"
+-#include "kernel/param.h"
+-#include "user/user.h"
+-
+-int
+-main(int argc, char *argv[])
+-{
+-    char buf[512];
+-    char *args[MAXARG];
+-    int i;
+-
+-    // copy command arguments
+-    for(i = 1; i < argc; i++){
+-        args[i-1] = argv[i];
+-    }
+-
+-    int argn = argc - 1;
+-
+-    int n = 0;
+-    char c;
+-
+-    while(read(0, &c, 1) == 1){
+-        if(c == '\n'){
+-            buf[n] = 0;
+-
+-            args[argn] = buf;
+-            args[argn+1] = 0;
+-
+-            if(fork() == 0){
+-                exec(args[0], args);
+-                exit(1);
+-            }
+-
+-            wait(0);
+-            n = 0;
+-        } 
+-        else{
+-            buf[n++] = c;
+-        }
+-    }
+-
+-    exit(0);
+-}
+\ No newline at end of file
