@@ -1,143 +1,209 @@
 diff --git a/Makefile b/Makefile
-index 2459777..06e38c6 100644
+index 74e454f..2459777 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -196,8 +196,6 @@ UPROGS=\
+@@ -194,7 +194,9 @@ UPROGS=\
+ 	$U/_wc\
  	$U/_zombie\
- 	$U/_trace\
- 	$U/_procinfo\
--  $U/_xargs\
--	$U/_tree\
  
++	$U/_trace\
++	$U/_procinfo\
+
+
+diff --git a/kernel/proc.c b/kernel/proc.c
+index 130d9ce..55a2375 100644
+--- a/kernel/proc.c
++++ b/kernel/proc.c
+@@ -316,6 +316,7 @@ fork(void)
  
- 
-diff --git a/user/tree.c b/user/tree.c
-deleted file mode 100644
-index 8548667..0000000
---- a/user/tree.c
-+++ /dev/null
-@@ -1,73 +0,0 @@
--#include "kernel/types.h"
--#include "kernel/stat.h"
--#include "user/user.h"
--#include "kernel/fs.h"
--
--void
--tree(char *path, int depth)
--{
--    char buf[512], *p;
--    int fd;
--    struct dirent de;
--    struct stat st;
--
--    // Mở thư mục
--    if((fd = open(path, 0)) < 0){
--        fprintf(2, "tree: cannot open %s\n", path);
--        return;
--    }
--
--    // Lấy thông tin file
--    if(fstat(fd, &st) < 0){
--        fprintf(2, "tree: cannot stat %s\n", path);
--        close(fd);
--        return;
--    }
--
--    // Nếu không phải thư mục thì in ra luôn
--    if(st.type != T_DIR){
--        for(int i = 0; i < depth; i++)
--            printf("  ");
--        printf("%s\n", path);
--        close(fd);
--        return;
--    }
--
--    // In tên thư mục
--    for(int i = 0; i < depth; i++)
--        printf("  ");
--    printf("%s/\n", path);
--
--    // Duyệt từng entry trong thư mục
--    while(read(fd, &de, sizeof(de)) == sizeof(de)){
--        if(de.inum == 0)
--            continue;
--
--        // Bỏ qua "." và ".."
--        if(strcmp(de.name, ".") == 0 || strcmp(de.name, "..") == 0)
--            continue;
--
--        // Tạo path mới
--        strcpy(buf, path);
--        p = buf + strlen(buf);
--        *p++ = '/';
--        memmove(p, de.name, DIRSIZ);
--        p[DIRSIZ] = 0;
--
--        // Gọi đệ quy
--        tree(buf, depth + 1);
--    }
--
--    close(fd);
--}
--
--int
--main(int argc, char *argv[])
--{
--    if(argc < 2){
--        tree(".", 0);
--    } else {
--        tree(argv[1], 0);
--    }
--    exit(0);
--}
-\ No newline at end of file
-diff --git a/user/xargs.c b/user/xargs.c
-deleted file mode 100644
-index f33dde5..0000000
---- a/user/xargs.c
-+++ /dev/null
-@@ -1,43 +0,0 @@
--#include "kernel/types.h"
--#include "kernel/param.h"
--#include "user/user.h"
--
--int
--main(int argc, char *argv[])
--{
--    char buf[512];
--    char *args[MAXARG];
--    int i;
--
--    // copy command arguments
--    for(i = 1; i < argc; i++){
--        args[i-1] = argv[i];
--    }
--
--    int argn = argc - 1;
--
--    int n = 0;
--    char c;
--
--    while(read(0, &c, 1) == 1){
--        if(c == '\n'){
--            buf[n] = 0;
--
--            args[argn] = buf;
--            args[argn+1] = 0;
--
--            if(fork() == 0){
--                exec(args[0], args);
--                exit(1);
--            }
--
--            wait(0);
--            n = 0;
--        } 
--        else{
--            buf[n++] = c;
--        }
--    }
--
--    exit(0);
--}
-\ No newline at end of file
+   acquire(&wait_lock);
+   np->parent = p;
++  np->tracemask = p->tracemask;
+   release(&wait_lock);
+
+diff --git a/kernel/proc.h b/kernel/proc.h
+index d021857..89b5eb0 100644
+--- a/kernel/proc.h
++++ b/kernel/proc.h
+@@ -104,4 +104,5 @@ struct proc {
+   struct file *ofile[NOFILE];
+   struct inode *cwd;
+   char name[16];
++  int tracemask;
+ };
+
+diff --git a/kernel/procinfo.h b/kernel/procinfo.h
+new file mode 100644
+--- /dev/null
++++ b/kernel/procinfo.h
+@@ -0,0 +1,14 @@
++#ifndef PROCINFO_H
++#define PROCINFO_H
++
++#include "types.h"
++
++struct procinfo {
++    int pid;
++    int ppid;
++    int state;
++    uint64 sz;
++    char name[16];
++};
++
++#endif
+
+diff --git a/kernel/syscall.h b/kernel/syscall.h
+index bc5f356..a195b49 100644
+--- a/kernel/syscall.h
++++ b/kernel/syscall.h
+@@ -20,3 +20,5 @@
+ #define SYS_mkdir  20
+ #define SYS_close  21
++#define SYS_trace     22
++#define SYS_procinfo  23
+
+diff --git a/kernel/syscall.c b/kernel/syscall.c
+index ed65409..5f4445f 100644
+--- a/kernel/syscall.c
++++ b/kernel/syscall.c
+@@ -101,7 +102,8 @@ extern uint64 sys_close(void);
++extern uint64 sys_trace(void);
++extern uint64 sys_procinfo(void);
+
+@@
++[SYS_trace] sys_trace,
++[SYS_procinfo] sys_procinfo,
+
++static char *syscallnames[] = {
++[SYS_trace] "trace",
++[SYS_procinfo] "procinfo",
++};
+
+@@
++    uint64 ret = syscalls[num]();
++    p->trapframe->a0 = ret;
++
++    if(num < NELEM(syscallnames) && ((p->tracemask >> num) & 1)){
++      printf("%d: syscall %s -> %d\n",
++             p->pid,
++             syscallnames[num],
++             (int)ret);
++    }
+
+diff --git a/kernel/sysproc.c b/kernel/sysproc.c
+index 3b4d5bd..b9a58ef 100644
+--- a/kernel/sysproc.c
++++ b/kernel/sysproc.c
+@@
++#include "procinfo.h"
++extern struct proc proc[NPROC];
+
++uint64
++sys_trace(void)
++{
++  int mask;
++  argint(0, &mask);
++  myproc()->tracemask = mask;
++  return 0;
++}
+
++uint64
++sys_procinfo(void)
++{
++  int pid;
++  uint64 addr;
++  struct proc *p;
++  struct procinfo info;
++
++  argint(0, &pid);
++  argaddr(1, &addr);
++
++  for(p = proc; p < &proc[NPROC]; p++){
++    if(p->pid == pid){
++      info.pid = p->pid;
++      info.ppid = p->parent ? p->parent->pid : 0;
++      info.state = p->state;
++      info.sz = p->sz;
++
++      safestrcpy(info.name, p->name, sizeof(info.name));
++
++      if(copyout(myproc()->pagetable, addr,
++                 (char *)&info, sizeof(info)) < 0)
++        return -1;
++
++      return 0;
++    }
++  }
++  return -1;
++}
+
+diff --git a/user/user.h b/user/user.h
+index f16fe27..002af05 100644
+--- a/user/user.h
++++ b/user/user.h
+@@
++struct procinfo;
++int trace(int);
++int procinfo(int pid, struct procinfo *);
+
+diff --git a/user/usys.pl b/user/usys.pl
+index 01e426e..7ea8059 100755
+--- a/user/usys.pl
++++ b/user/usys.pl
+@@
++entry("trace");
++entry("procinfo");
+
+diff --git a/user/trace.c b/user/trace.c
+new file mode 100644
+--- /dev/null
++++ b/user/trace.c
+@@ -0,0 +1,24 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++
++int main(int argc, char *argv[])
++{
++  int mask;
++
++  if(argc < 3){
++    fprintf(2, "usage: trace mask command\n");
++    exit(1);
++  }
++
++  mask = atoi(argv[1]);
++  trace(mask);
++  exec(argv[2], &argv[2]);
++
++  printf("trace: exec failed\n");
++  exit(0);
++}
+
+diff --git a/user/procinfo.c b/user/procinfo.c
+new file mode 100644
+--- /dev/null
++++ b/user/procinfo.c
+@@ -0,0 +1,23 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "kernel/procinfo.h"
++#include "user/user.h"
++
++int main(int argc, char *argv[])
++{
++  struct procinfo info;
++
++  if(procinfo(1, &info) < 0){
++    printf("procinfo failed\n");
++    exit(1);
++  }
++
++  printf("PID: %d\n", info.pid);
++  printf("PPID: %d\n", info.ppid);
++  printf("State: %d\n", info.state);
++  printf("Memory: %ld bytes\n", info.sz);
++  printf("Name: %s\n", info.name);
++
++  exit(0);
++}
