@@ -96,3 +96,10 @@ struct procinfo {
   char name[16];
 };
 ```
+
+## References
+
+- [xv6 util lab](https://pdos.csail.mit.edu/6.1810/2024/labs/util.html)
+
+- [xv6 syscall lab](https://pdos.csail.mit.edu/6.1810/2023/labs/syscall.html)
+- [xv6 book (MIT)](https://pdos.csail.mit.edu/6.1810/2023/xv6/book-riscv-rev1.pdf)
